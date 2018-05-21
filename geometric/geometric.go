@@ -4,6 +4,7 @@ import (
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/plugins/inputs"
 	"fmt"
+	"time"
 )
 
 // inputs/all.go
@@ -29,25 +30,27 @@ func (s *SockerReader) Description() string {
 }
 
 func (s *SockerReader) Gather(_ telegraf.Accumulator) error {
-	//fmt.Print("Gathering")
+	fmt.Println("Geometric Gather()")
 	return nil
 }
 
 func (s *SockerReader) Send() error {
+
 	for {
+		time.Sleep(1 * time.Second)
+
 		fields := make(map[string]interface{})
 		fields["x"] = s.x
 		fields["step"] = s.Step
 		s.x *= s.Step
 
 		tags := make(map[string]string)
-
 		s.AddFields("geometric", fields, tags)
 	}
 }
 
 func (s *SockerReader) Start(acc telegraf.Accumulator) error {
-	fmt.Print("Start")
+	fmt.Println("Geometric Start()")
 	s.Accumulator = acc
 	go s.Send()
 	return nil
@@ -60,7 +63,7 @@ func (s *SockerReader) Start(acc telegraf.Accumulator) error {
 	// {"fields":{"step":2,"x":4},"name":"geometric","tags":{"host":"centos75"},"timestamp":1526885111}
 }
 
-func (s *SockerReader) Stop(acc telegraf.Accumulator) {
+func (s *SockerReader) Stop() {
 }
 
 func init() {
