@@ -4,6 +4,10 @@ import (
 	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/plugins/inputs"
 	"time"
+	"net"
+	"bufio"
+	"fmt"
+	"strings"
 )
 
 // inputs/all.go
@@ -53,9 +57,83 @@ func (s *Quotes) Send() error {
 	}
 }
 
+func login(conn net.Conn, reader *bufio.Reader) bool {
+
+	for {
+		res, err := reader.ReadString(' ')
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		fmt.Printf(res)
+		if res=="Login: " {
+			fmt.Fprintf(conn, "dde" + "\n")
+		} else if res=="Password: " {
+			fmt.Fprintf(conn, "1q2w3e4r" + "\n")
+			break
+		}
+	}
+
+	res, err := reader.ReadString('\n')
+	res, err = reader.ReadString('\n')
+	if err != nil {
+		fmt.Println(err)
+		return false
+	}
+	fmt.Printf("\n")
+	fmt.Printf(res)
+	if strings.Contains(res, "Access granted") {
+		return true
+	} else if strings.Contains(res, "Access denied") {
+		return false
+	} else {
+		return false
+	}
+	return false
+
+}
+
+func start(fn func(string)) {
+	for {
+
+		fmt.Println(time.Now().Format("2006-01-02 15:04:05.000") + " " + "Restarting")
+
+		conn, err := net.Dial("tcp", "127.0.0.1:2222")
+		defer conn.Close()
+
+		if err!=nil {
+			fmt.Println(err)
+			continue
+		}
+		reader := bufio.NewReader(conn)
+
+		if !login(conn, reader) {
+			continue
+		}
+
+		for {
+			res, err := reader.ReadString('\n')
+			if err != nil {
+				break
+			}
+			fn(res)
+		}
+
+	}
+}
+
 func (s *Quotes) Start(acc telegraf.Accumulator) error {
 	s.Accumulator = acc
-	go s.Send()
+	fn := func(res string) {
+		fields := make(map[string]interface{})
+		fields["Time"] = s.Time
+		fields["Symbol"] = s.Symbol
+		fields["Bid"] = s.Bid
+
+		tags := make(map[string]string)
+		s.AddFields("dde", fields, tags)
+	}
+	go start(fn)
 	return nil
 }
 
