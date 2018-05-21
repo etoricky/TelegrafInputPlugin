@@ -24,7 +24,6 @@ type Quotes struct {
 	YClose float64 // 1270.70
 	HighSpread float64 // 12
 	LowSpread float64 // 234
-	telegraf.Accumulator
 }
 
 var ConfigString= `
@@ -41,20 +40,6 @@ func (s *Quotes) Description() string {
 
 func (s *Quotes) Gather(_ telegraf.Accumulator) error {
 	return nil
-}
-
-func (s *Quotes) Send() error {
-	for {
-		time.Sleep(1 * time.Second)
-
-		fields := make(map[string]interface{})
-		fields["Time"] = s.Time
-		fields["Symbol"] = s.Symbol
-		fields["Bid"] = s.Bid
-
-		tags := make(map[string]string)
-		s.AddFields("dde", fields, tags)
-	}
 }
 
 func login(conn net.Conn, reader *bufio.Reader) bool {
@@ -123,15 +108,18 @@ func start(fn func(string)) {
 }
 
 func (s *Quotes) Start(acc telegraf.Accumulator) error {
-	s.Accumulator = acc
 	fn := func(res string) {
+
+		tokens := strings.Fields(res) // "GOLD 1292.11 1292.61"
+
 		fields := make(map[string]interface{})
-		fields["Time"] = s.Time
-		fields["Symbol"] = s.Symbol
-		fields["Bid"] = s.Bid
+		fields["Time"] = time.Now().Format("2006-01-02 15:04:05")
+		fields["Symbol"] = tokens[0]
+		fields["Bid"] = tokens[1]
+		fields["Ask"] = tokens[2]
 
 		tags := make(map[string]string)
-		s.AddFields("dde", fields, tags)
+		acc.AddFields("dde_connector", fields, tags)
 	}
 	go start(fn)
 	return nil
