@@ -8,6 +8,8 @@ import (
 	"bufio"
 	"fmt"
 	"strings"
+	"strconv"
+	"github.com/pkg/errors"
 )
 
 // inputs/all.go
@@ -24,14 +26,15 @@ type Quotes struct {
 	YClose float64 // 1270.70
 	HighSpread float64 // 12
 	LowSpread float64 // 234
+    Exchange string
+    Format string
 }
 
-var ConfigString= `
-  ## no parameters yet
-`
-
 func (s *Quotes) SampleConfig() string {
-	return ConfigString
+	return `
+  ## Output data format. influx or field_only
+  format = "field_only"
+`
 }
 
 func (s *Quotes) Description() string {
@@ -96,6 +99,12 @@ func start(fn func(string)) {
 			continue
 		}
 
+		go func() {
+			for _ = range time.NewTicker(1 * time.Second).C {
+				fmt.Fprintf(conn, "> Ping" + "\n")
+			}
+		}()
+
 		for {
 			res, err := reader.ReadString('\n')
 			if err != nil {
@@ -107,21 +116,85 @@ func start(fn func(string)) {
 	}
 }
 
-func (s *Quotes) Start(acc telegraf.Accumulator) error {
-	fn := func(res string) {
-
-		tokens := strings.Fields(res) // "GOLD 1292.11 1292.61"
-
-		fields := make(map[string]interface{})
-		fields["Time"] = time.Now().Format("2006-01-02 15:04:05")
-		fields["Symbol"] = tokens[0]
-		fields["Bid"] = tokens[1]
-		fields["Ask"] = tokens[2]
-
-		tags := make(map[string]string)
-		acc.AddFields("dde_connector", fields, tags)
+func parseResult(res string, s *Quotes) error {
+	fields := strings.Fields(res) // "GOLD 1292.11 1292.61"
+	if fields[0]==">" {
+		return errors.New("Starting with >")
 	}
-	go start(fn)
+	if len(fields)!=3 {
+		return errors.New("Error: Not starting with > but not 3 fields")
+	}
+
+	bid, err := strconv.ParseFloat(fields[1], 64)
+	if err!=nil {
+		return err
+	}
+	ask, err := strconv.ParseFloat(fields[2], 64)
+	if err!=nil {
+		return err
+	}
+
+	s.Time = time.Now().Format("2006-01-02 15:04:05")
+	s.Symbol = fields[0]
+	s.Open = 0.0
+	s.High = 0.0
+	s.Low = 0.0
+	s.Bid = bid
+	s.Ask = ask
+	s.YClose = 0.0
+	s.HighSpread = 0
+	s.LowSpread = 0
+	s.Exchange = "Hong Kong"
+	return nil
+}
+
+func (s *Quotes) Start(acc telegraf.Accumulator) error {
+
+	switch s.Format {
+	case "influx":
+		fn := func(res string) {
+			err := parseResult(res, s)
+			if err!=nil {
+				return
+			}
+			fields := make(map[string]interface{})
+			fields["Open"] = s.Open
+			fields["High"] = s.High
+			fields["Low"] = s.Low
+			fields["Ask"] = s.Ask
+			fields["Bid"] = s.Bid
+			fields["YClose"] = s.YClose
+			fields["HighSpread"] = s.HighSpread
+			fields["LowSpread"] = s.LowSpread
+			tags := make(map[string]string)
+			tags["Exchange"] = s.Exchange
+			acc.AddFields(s.Symbol, fields, tags)
+		}
+		go start(fn)
+	case "field_only":
+		fn := func(res string) {
+			err := parseResult(res, s)
+			if err!=nil {
+				return
+			}
+			fields := make(map[string]interface{})
+			fields["Time"] = s.Time
+			fields["Symbol"] = s.Symbol
+			fields["Open"] = s.Open
+			fields["High"] = s.High
+			fields["Low"] = s.Low
+			fields["Ask"] = s.Ask
+			fields["Bid"] = s.Bid
+			fields["YClose"] = s.YClose
+			fields["HighSpread"] = s.HighSpread
+			fields["LowSpread"] = s.LowSpread
+			fields["Exchange"] = s.Exchange
+			tags := make(map[string]string)
+			acc.AddFields("dde_connector", fields, tags)
+		}
+		go start(fn)
+	}
+
 	return nil
 }
 
