@@ -10,38 +10,41 @@ import (
 	"strings"
 	"strconv"
 	"github.com/pkg/errors"
+	"math"
 )
 
 // inputs/all.go
 // 	_ "github.com/influxdata/telegraf/plugins/inputs/dde"
 
-type Quotes struct {
-	Time string // 2017.10.30 15:19:22
-	Symbol string // GOLD
+type Quote struct {
+	Time time.Time // 2017.10.30 15:19:22
 	Open float64 // 1272.90
 	High float64 // 1273.86
 	Low float64 // 1268.94
-	Ask float64 // 1269.55
-	Bid float64 // 1269.05
 	YClose float64 // 1270.70
+	Bid float64 // 1269.05
+	Ask float64 // 1269.55
 	HighSpread float64 // 12
 	LowSpread float64 // 234
-    Exchange string
-    Format string
 }
 
-func (s *Quotes) SampleConfig() string {
+type DdeData struct {
+	Timezone string
+	quotes map[string]Quote
+}
+
+func (s *DdeData) SampleConfig() string {
 	return `
-  ## Output data format. influx or fields_only
-  format = "fields_only"
+  ## IANA Time Zone, Asia/Hong_Kong or Europe/London
+  timezone = "Europe/London"
 `
 }
 
-func (s *Quotes) Description() string {
-	return "Generate DataPoint"
+func (s *DdeData) Description() string {
+	return "Generate datapoint from Universal DDE Connector TCP socket"
 }
 
-func (s *Quotes) Gather(_ telegraf.Accumulator) error {
+func (s *DdeData) Gather(_ telegraf.Accumulator) error {
 	return nil
 }
 
@@ -116,93 +119,89 @@ func start(fn func(string)) {
 	}
 }
 
-func parseResult(res string, s *Quotes) error {
+func handlePrice(res string, s *DdeData, location *time.Location) (*string, *Quote, error) {
 	fields := strings.Fields(res) // "GOLD 1292.11 1292.61"
 	if fields[0]==">" {
-		return errors.New("Starting with >")
+		return nil, nil, errors.New("Starting with >")
 	}
 	if len(fields)!=3 {
-		return errors.New("Error: Not starting with > but not 3 fields")
+		return nil, nil, errors.New("Error: Not starting with > but not 3 fields")
 	}
 
+	symbol := fields[0]
 	bid, err := strconv.ParseFloat(fields[1], 64)
 	if err!=nil {
-		return err
+		return nil, nil, err
 	}
 	ask, err := strconv.ParseFloat(fields[2], 64)
 	if err!=nil {
-		return err
+		return nil, nil, err
+	}
+	spread := ask - bid
+	now := time.Now().In(location)
+
+	last, exist := s.quotes[symbol]
+	if !exist {
+		last = Quote{now, bid, bid, bid, bid, bid, ask, spread, spread}
+		s.quotes[symbol] = last
 	}
 
-	s.Time = time.Now().Format("2006-01-02 15:04:05")
-	s.Symbol = fields[0]
-	s.Open = 0.0
-	s.High = 0.0
-	s.Low = 0.0
-	s.Bid = bid
-	s.Ask = ask
-	s.YClose = 0.0
-	s.HighSpread = 0
-	s.LowSpread = 0
-	s.Exchange = "Hong Kong"
-	return nil
+	curr := Quote{now, last.Open, last.High, last.Low, last.YClose, bid, ask,last.HighSpread, last.LowSpread }
+
+	if now.Day()!=last.Time.Day() {
+		curr.Open = bid
+		curr.High = bid
+		curr.Low = bid
+		curr.YClose = last.Bid
+		curr.HighSpread = spread
+		curr.LowSpread = spread
+	}
+
+	curr.HighSpread = math.Max(curr.HighSpread, spread)
+	curr.LowSpread = math.Min(curr.LowSpread, spread)
+	curr.High = math.Max(curr.High, bid)
+	curr.Low = math.Min(curr.Low, bid)
+
+	s.quotes[symbol] = curr
+	return &symbol, &curr, nil
 }
 
-func (s *Quotes) Start(acc telegraf.Accumulator) error {
+func (s *DdeData) Start(acc telegraf.Accumulator) error {
 
-	switch s.Format {
-	case "influx":
-		fn := func(res string) {
-			err := parseResult(res, s)
-			if err!=nil {
-				return
-			}
-			fields := make(map[string]interface{})
-			fields["Open"] = s.Open
-			fields["High"] = s.High
-			fields["Low"] = s.Low
-			fields["Ask"] = s.Ask
-			fields["Bid"] = s.Bid
-			fields["YClose"] = s.YClose
-			fields["HighSpread"] = s.HighSpread
-			fields["LowSpread"] = s.LowSpread
-			tags := make(map[string]string)
-			tags["Exchange"] = s.Exchange
-			acc.AddFields(s.Symbol, fields, tags)
-		}
-		go start(fn)
-	case "fields_only":
-		fn := func(res string) {
-			err := parseResult(res, s)
-			if err!=nil {
-				return
-			}
-			fields := make(map[string]interface{})
-			fields["Time"] = s.Time
-			fields["Symbol"] = s.Symbol
-			fields["Open"] = s.Open
-			fields["High"] = s.High
-			fields["Low"] = s.Low
-			fields["Ask"] = s.Ask
-			fields["Bid"] = s.Bid
-			fields["YClose"] = s.YClose
-			fields["HighSpread"] = s.HighSpread
-			fields["LowSpread"] = s.LowSpread
-			fields["Exchange"] = s.Exchange
-			tags := make(map[string]string)
-			acc.AddFields("dde_connector", fields, tags)
-		}
-		go start(fn)
+	location, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		fmt.Println(err)
 	}
+
+	fn := func(res string) {
+		symbol, quote, err := handlePrice(res, s, location)
+		if err!=nil {
+			return
+		}
+		fields := make(map[string]interface{})
+		fields["Time"] = quote.Time.Format("2006-01-02 15:04:05")
+		fields["Symbol"] = *symbol
+		fields["Open"] = quote.Open
+		fields["High"] = quote.High
+		fields["Low"] = quote.Low
+		fields["YClose"] = quote.YClose
+		fields["Bid"] = quote.Bid
+		fields["Ask"] = quote.Ask
+		fields["HighSpread"] = quote.HighSpread
+		fields["LowSpread"] = quote.LowSpread
+		tags := make(map[string]string)
+		acc.AddFields(*symbol, fields, tags, quote.Time)
+	}
+	go start(fn)
 
 	return nil
 }
 
-func (s *Quotes) Stop() {
+func (s *DdeData) Stop() {
 }
 
 func init() {
-	inputs.Add("dde", func() telegraf.Input { return &Quotes{} })
+	inputs.Add("dde", func() telegraf.Input { return &DdeData{"Europe/London", make(map[string]Quote)} })
 }
 
 // json
