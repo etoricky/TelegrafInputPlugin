@@ -32,8 +32,8 @@ type Quotes struct {
 
 func (s *Quotes) SampleConfig() string {
 	return `
-  ## Output data format. influx or field_only
-  format = "field_only"
+  ## Output data format. influx or fields_only
+  format = "fields_only"
 `
 }
 
@@ -171,7 +171,7 @@ func (s *Quotes) Start(acc telegraf.Accumulator) error {
 			acc.AddFields(s.Symbol, fields, tags)
 		}
 		go start(fn)
-	case "field_only":
+	case "fields_only":
 		fn := func(res string) {
 			err := parseResult(res, s)
 			if err!=nil {
