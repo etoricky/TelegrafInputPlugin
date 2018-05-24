@@ -10,6 +10,7 @@ After disconnected, client will auto restart to connect to DDE Connector server 
     2018-05-17 11:55:00.099 Restarting
     
 Periodic sending "> Ping" for every 60s avoid the TCP disconnection.
+It is tested that after "> Ping" the TCP connection never restart.
 
 London Time
 ===========
@@ -24,4 +25,37 @@ On Windows production, it requires to install Go so that below zip IANA Time Zon
 
     $GOROOT/lib/time/zoneinfo.zip
     
-    
+Firewall
+========
+
+Universal DDE Connector uses TCP 2222
+The file here C:\Program Files (x86)\UniDDEConnector\default.sym stores the 
+
+Items and Decimal Points
+========================
+
+GOLD   2
+SILVER 2
+USDCHF 5
+GBPUSD 5
+EURUSD 5
+USDJPY 3
+USDCAD 5
+AUDUSD 5
+EURGBP 5
+EURAUD 5
+EURCHF 5
+EURJPY 3
+GBPCHF 5
+CADJPY 3
+GBPJPY 3
+AUDNZD 5
+AUDCAD 5
+AUDCHF 5
+AUDJPY 3
+CHFJPY 3
+EURNZD 5
+EURCAD 5
+CADCHF 5
+NZDJPY 3
+NZDUSD 5

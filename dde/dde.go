@@ -29,14 +29,12 @@ type Quote struct {
 }
 
 type DdeData struct {
-	Timezone string
 	quotes map[string]Quote
 }
 
 func (s *DdeData) SampleConfig() string {
 	return `
-  ## IANA Time Zone, Asia/Hong_Kong or Europe/London
-  timezone = "Europe/London"
+  ## No config required
 `
 }
 
@@ -119,7 +117,9 @@ func start(fn func(string)) {
 	}
 }
 
-func handlePrice(res string, s *DdeData, location *time.Location) (*string, *Quote, error) {
+func handlePrice(res string, s *DdeData) (*string, *Quote, error) {
+	now := time.Now()
+
 	fields := strings.Fields(res) // "GOLD 1292.11 1292.61"
 	if fields[0]==">" {
 		return nil, nil, errors.New("Starting with >")
@@ -138,7 +138,6 @@ func handlePrice(res string, s *DdeData, location *time.Location) (*string, *Quo
 		return nil, nil, err
 	}
 	spread := ask - bid
-	now := time.Now().In(location)
 
 	last, exist := s.quotes[symbol]
 	if !exist {
@@ -168,13 +167,8 @@ func handlePrice(res string, s *DdeData, location *time.Location) (*string, *Quo
 
 func (s *DdeData) Start(acc telegraf.Accumulator) error {
 
-	location, err := time.LoadLocation(s.Timezone)
-	if err != nil {
-		fmt.Println(err)
-	}
-
 	fn := func(res string) {
-		symbol, quote, err := handlePrice(res, s, location)
+		symbol, quote, err := handlePrice(res, s)
 		if err!=nil {
 			return
 		}
@@ -201,7 +195,7 @@ func (s *DdeData) Stop() {
 }
 
 func init() {
-	inputs.Add("dde", func() telegraf.Input { return &DdeData{"Europe/London", make(map[string]Quote)} })
+	inputs.Add("dde", func() telegraf.Input { return &DdeData{make(map[string]Quote)} })
 }
 
 // json
