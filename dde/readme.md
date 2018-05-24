@@ -65,3 +65,8 @@ MT4
 ===
 
 Suggest using RBTray for minimizing MT4 terminal to tray on production server
+
+Tests
+=====
+
+1. When DDE Connector is closed, program recover() and will not crash

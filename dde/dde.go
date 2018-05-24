@@ -48,7 +48,6 @@ func (s *DdeData) Gather(_ telegraf.Accumulator) error {
 	return nil
 }
 
-
 var logger *log.Logger
 
 func login(conn net.Conn, reader *bufio.Reader) error {
@@ -83,7 +82,44 @@ func login(conn net.Conn, reader *bufio.Reader) error {
 	}
 }
 
-func connect(fn func(string)) {
+func connect(fn func(string)) error {
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Println("Recovered in f", r)
+		}
+	}()
+
+	conn, err := net.Dial("tcp", "127.0.0.1:2222")
+	if err!=nil {
+		return err
+	}
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+
+	err = login(conn, reader)
+	if err!=nil {
+		return err
+	}
+
+	go func() {
+		for _ = range time.NewTicker(60 * time.Second).C {
+			fmt.Fprintf(conn, "> Ping" + "\n")
+		}
+	}()
+
+	for {
+		res, err := reader.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		fn(res)
+	}
+
+	return nil
+}
+
+func start(fn func(string)) {
 
 	f, err := os.OpenFile("dde.log", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
 	if err != nil {
@@ -94,38 +130,11 @@ func connect(fn func(string)) {
 	logger = log.New(f, "", log.Ldate|log.Lmicroseconds|log.Lshortfile)
 
 	for {
-
 		logger.Println("Reconnecting")
-
-		conn, err := net.Dial("tcp", "127.0.0.1:2222")
-		defer conn.Close()
-
-		if err!=nil {
-			logger.Println(err)
-			continue
-		}
-		reader := bufio.NewReader(conn)
-
-		err = login(conn, reader)
+		err = connect(fn)
 		if err!=nil {
 			logger.Println(err)
 		}
-
-		go func() {
-			for _ = range time.NewTicker(60 * time.Second).C {
-				fmt.Fprintf(conn, "> Ping" + "\n")
-			}
-		}()
-
-		for {
-			res, err := reader.ReadString('\n')
-			if err != nil {
-				logger.Println("Error in ReadString")
-				break
-			}
-			fn(res)
-		}
-
 	}
 }
 
@@ -199,7 +208,7 @@ func (s *DdeData) Start(acc telegraf.Accumulator) error {
 		tags := make(map[string]string)
 		acc.AddFields(*symbol, fields, tags, quote.Time)
 	}
-	go connect(fn)
+	go start(fn)
 
 	return nil
 }
