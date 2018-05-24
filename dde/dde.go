@@ -196,6 +196,7 @@ func (s *DdeData) Start(acc telegraf.Accumulator) error {
 		}
 		fields := make(map[string]interface{})
 		fields["Time"] = quote.Time.Format("2006-01-02 15:04:05")
+		fields["TimeMicro"] = quote.Time.UnixNano() / int64(time.Microsecond)
 		fields["Symbol"] = *symbol
 		fields["Open"] = quote.Open
 		fields["High"] = quote.High
