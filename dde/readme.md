@@ -59,3 +59,9 @@ EURCAD 5
 CADCHF 5
 NZDJPY 3
 NZDUSD 5
+
+
+MT4
+===
+
+Suggest using RBTray for minimizing MT4 terminal to tray on production server

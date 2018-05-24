@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"github.com/pkg/errors"
 	"math"
+	"log"
+	"os"
 )
 
 // inputs/all.go
@@ -46,15 +48,17 @@ func (s *DdeData) Gather(_ telegraf.Accumulator) error {
 	return nil
 }
 
-func login(conn net.Conn, reader *bufio.Reader) bool {
+
+var logger *log.Logger
+
+func login(conn net.Conn, reader *bufio.Reader) error {
 
 	for {
 		res, err := reader.ReadString(' ')
 		if err != nil {
-			fmt.Println(err)
-			return false
+			return err
 		}
-		fmt.Printf(res)
+		logger.Printf(res)
 		if res=="Login: " {
 			fmt.Fprintf(conn, "dde" + "\n")
 		} else if res=="Password: " {
@@ -66,42 +70,49 @@ func login(conn net.Conn, reader *bufio.Reader) bool {
 	res, err := reader.ReadString('\n')
 	res, err = reader.ReadString('\n')
 	if err != nil {
-		fmt.Println(err)
-		return false
+		return err
 	}
-	fmt.Printf("\n")
-	fmt.Printf(res)
+	logger.Printf("\n")
+	logger.Printf(res)
 	if strings.Contains(res, "Access granted") {
-		return true
+		return nil
 	} else if strings.Contains(res, "Access denied") {
-		return false
+		return errors.New("Access denied")
 	} else {
-		return false
+		return errors.New("Neither access granted nor denied")
 	}
-	return false
-
 }
 
-func start(fn func(string)) {
+func connect(fn func(string)) {
+
+	f, err := os.OpenFile("dde.log", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Printf("error opening file: %v", err)
+		os.Exit(1)
+	}
+	defer f.Close()
+	logger = log.New(f, "", log.Ldate|log.Lmicroseconds|log.Lshortfile)
+
 	for {
 
-		fmt.Println(time.Now().Format("2006-01-02 15:04:05.000") + " " + "Restarting")
+		logger.Println("Reconnecting")
 
 		conn, err := net.Dial("tcp", "127.0.0.1:2222")
 		defer conn.Close()
 
 		if err!=nil {
-			fmt.Println(err)
+			logger.Println(err)
 			continue
 		}
 		reader := bufio.NewReader(conn)
 
-		if !login(conn, reader) {
-			continue
+		err = login(conn, reader)
+		if err!=nil {
+			logger.Println(err)
 		}
 
 		go func() {
-			for _ = range time.NewTicker(1 * time.Second).C {
+			for _ = range time.NewTicker(60 * time.Second).C {
 				fmt.Fprintf(conn, "> Ping" + "\n")
 			}
 		}()
@@ -109,6 +120,7 @@ func start(fn func(string)) {
 		for {
 			res, err := reader.ReadString('\n')
 			if err != nil {
+				logger.Println("Error in ReadString")
 				break
 			}
 			fn(res)
@@ -116,6 +128,7 @@ func start(fn func(string)) {
 
 	}
 }
+
 
 func handlePrice(res string, s *DdeData) (*string, *Quote, error) {
 	now := time.Now()
@@ -186,7 +199,7 @@ func (s *DdeData) Start(acc telegraf.Accumulator) error {
 		tags := make(map[string]string)
 		acc.AddFields(*symbol, fields, tags, quote.Time)
 	}
-	go start(fn)
+	go connect(fn)
 
 	return nil
 }
