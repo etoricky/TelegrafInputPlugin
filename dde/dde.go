@@ -31,12 +31,15 @@ type Quote struct {
 }
 
 type DdeData struct {
+	Name string
+	Password string
 	quotes map[string]Quote
 }
 
 func (s *DdeData) SampleConfig() string {
-	return `
-  ## No config required
+	return `## Universal DDE Connector login information
+name = "dde"
+password = "1q2w3e4r"
 `
 }
 
@@ -47,10 +50,9 @@ func (s *DdeData) Description() string {
 func (s *DdeData) Gather(_ telegraf.Accumulator) error {
 	return nil
 }
-
 var logger *log.Logger
 
-func login(conn net.Conn, reader *bufio.Reader) error {
+func login(conn net.Conn, reader *bufio.Reader, name string, password string) error {
 
 	for {
 		res, err := reader.ReadString(' ')
@@ -59,9 +61,9 @@ func login(conn net.Conn, reader *bufio.Reader) error {
 		}
 		logger.Printf(res)
 		if res=="Login: " {
-			fmt.Fprintf(conn, "dde" + "\n")
+			fmt.Fprintf(conn, name + "\n")
 		} else if res=="Password: " {
-			fmt.Fprintf(conn, "1q2w3e4r" + "\n")
+			fmt.Fprintf(conn, password + "\n")
 			break
 		}
 	}
@@ -82,7 +84,7 @@ func login(conn net.Conn, reader *bufio.Reader) error {
 	}
 }
 
-func connect(fn func(string)) error {
+func connect(fn func(string), name string, password string) error {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -97,7 +99,7 @@ func connect(fn func(string)) error {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 
-	err = login(conn, reader)
+	err = login(conn, reader, name, password)
 	if err!=nil {
 		return err
 	}
@@ -119,7 +121,7 @@ func connect(fn func(string)) error {
 	return nil
 }
 
-func start(fn func(string)) {
+func start(fn func(string), name string, password string) {
 
 	f, err := os.OpenFile("dde.log", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
 	if err != nil {
@@ -131,7 +133,7 @@ func start(fn func(string)) {
 
 	for {
 		logger.Println("Reconnecting")
-		err = connect(fn)
+		err = connect(fn, name, password)
 		if err!=nil {
 			logger.Println(err)
 		}
@@ -209,7 +211,7 @@ func (s *DdeData) Start(acc telegraf.Accumulator) error {
 		tags := make(map[string]string)
 		acc.AddFields(*symbol, fields, tags, quote.Time)
 	}
-	go start(fn)
+	go start(fn, s.Name, s.Password)
 
 	return nil
 }
@@ -218,14 +220,5 @@ func (s *DdeData) Stop() {
 }
 
 func init() {
-	inputs.Add("dde", func() telegraf.Input { return &DdeData{make(map[string]Quote)} })
+	inputs.Add("dde", func() telegraf.Input { return &DdeData{"", "", make(map[string]Quote)} })
 }
-
-// json
-// {"fields":{"ask":0,"bid":0},"name":"gold","tags":{"host":"centos75"},"timestamp":1526896082}
-
-// ideal
-// {"Time":"2017.10.30 15:19:22","Symbol":"GOLD","Open":1272.90,"High":1273.86,"Low":1268.94,"Ask":1269.55,"Bid":1269.05,"YClose":1270.70,"HighSpread":12,"LowSpread":234}
-
-// expect: no tag, random timestamp, empty name
-// {"fields":{"Time":"2017.10.30 15:19:22","Symbol":"GOLD","Open":1272.90,"High":1273.86,"Low":1268.94,"Ask":1269.55,"Bid":1269.05,"YClose":1270.70,"HighSpread":12,"LowSpread":234},"name":"","timestamp":1526896082}
