@@ -31,14 +31,14 @@ type Quote struct {
 }
 
 type DdeData struct {
-	Name string
+	Username string
 	Password string
 	quotes map[string]Quote
 }
 
 func (s *DdeData) SampleConfig() string {
 	return `## Universal DDE Connector login information
-name = "dde"
+username = "dde"
 password = "1q2w3e4r"
 `
 }
@@ -52,7 +52,7 @@ func (s *DdeData) Gather(_ telegraf.Accumulator) error {
 }
 var logger *log.Logger
 
-func login(conn net.Conn, reader *bufio.Reader, name string, password string) error {
+func login(conn net.Conn, reader *bufio.Reader, username string, password string) error {
 
 	for {
 		res, err := reader.ReadString(' ')
@@ -61,7 +61,7 @@ func login(conn net.Conn, reader *bufio.Reader, name string, password string) er
 		}
 		logger.Printf(res)
 		if res=="Login: " {
-			fmt.Fprintf(conn, name + "\n")
+			fmt.Fprintf(conn, username + "\n")
 		} else if res=="Password: " {
 			fmt.Fprintf(conn, password + "\n")
 			break
@@ -84,7 +84,7 @@ func login(conn net.Conn, reader *bufio.Reader, name string, password string) er
 	}
 }
 
-func connect(fn func(string), name string, password string) error {
+func connect(fn func(string), username string, password string) error {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -99,7 +99,7 @@ func connect(fn func(string), name string, password string) error {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
 
-	err = login(conn, reader, name, password)
+	err = login(conn, reader, username, password)
 	if err!=nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func connect(fn func(string), name string, password string) error {
 	return nil
 }
 
-func start(fn func(string), name string, password string) {
+func start(fn func(string), username string, password string) {
 
 	f, err := os.OpenFile("dde.log", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
 	if err != nil {
@@ -133,7 +133,7 @@ func start(fn func(string), name string, password string) {
 
 	for {
 		logger.Println("Reconnecting")
-		err = connect(fn, name, password)
+		err = connect(fn, username, password)
 		if err!=nil {
 			logger.Println(err)
 		}
@@ -211,7 +211,7 @@ func (s *DdeData) Start(acc telegraf.Accumulator) error {
 		tags := make(map[string]string)
 		acc.AddFields(*symbol, fields, tags, quote.Time)
 	}
-	go start(fn, s.Name, s.Password)
+	go start(fn, s.Username, s.Password)
 
 	return nil
 }
